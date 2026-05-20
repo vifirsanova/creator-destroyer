@@ -7,5 +7,5 @@ this is my ~art~ project, where u can scroll, move your mouse and "communicate" 
 
 I created this while listening to LINGUA IGNOTA, if that is important
 
-## math
+for math details, see math.pdf with forumulas :)
 
