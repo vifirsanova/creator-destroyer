@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+  <title>creator-destroyer • by missvector</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      background: #0a0a0a;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      font-family: monospace;
+      overflow: hidden;
+      cursor: none;
+    }
+    canvas {
+      display: block;
+      border-radius: 4px;
+    }
+    .sig {
+      position: fixed;
+      bottom: 18px;
+      right: 24px;
+      color: #4a4a4a;
+      font-size: 10px;
+      letter-spacing: 2px;
+      user-select: none;
+      z-index: 10;
+      pointer-events: none;
+    }
+    .miss {
+      position: fixed;
+      bottom: 24px;
+      left: 22px;
+      color: #4a4a4a;
+      font-size: 10px;
+      letter-spacing: 1.5px;
+      z-index: 10;
+      text-decoration: none;
+      transition: color 0.6s;
+    }
+    .miss:hover {
+      color: #7a7a7a;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="c"></canvas>
+  <div class="sig">creator-destroyerь</div>
+  <a class="miss" href="https://github.com/vifirsanova" target="_blank" rel="noopener">missvector</a>
+
+  <script>
+    (function() {
+      const canvas = document.getElementById('c');
+      const ctx = canvas.getContext('2d', { alpha: true });
+
+      let W, H, size;
+      let cx, cy, sc;
+      
+      function resize() {
+        size = Math.min(window.innerWidth * 0.95, window.innerHeight * 0.95, 700);
+        canvas.width = size;
+        canvas.height = size;
+        W = size;
+        H = size;
+        cx = W / 2;
+        cy = H / 2;
+        sc = size * 0.85;
+        buildGradients();
+      }
+      window.addEventListener('resize', resize);
+
+      let mx = 0, my = 0, tmx = 0, tmy = 0;
+      canvas.addEventListener('mousemove', e => {
+        const r = canvas.getBoundingClientRect();
+        tmx = (e.clientX - r.left) / W - 0.5;
+        tmy = (e.clientY - r.top) / H - 0.5;
+      });
+      canvas.addEventListener('mouseleave', () => { tmx = 0; tmy = 0; });
+
+      let scrollOffset = 0;
+      let targetScroll = 0;
+      
+      window.addEventListener('wheel', (e) => {
+        e.preventDefault();
+        targetScroll += e.deltaY * 0.0008;
+        targetScroll = Math.max(-3, Math.min(3, targetScroll));
+      }, { passive: false });
+      
+      let touchStartY = 0;
+      window.addEventListener('touchstart', (e) => {
+        touchStartY = e.touches[0].clientY;
+      }, { passive: false });
+      window.addEventListener('touchmove', (e) => {
+        e.preventDefault();
+        const dy = touchStartY - e.touches[0].clientY;
+        targetScroll += dy * 0.0005;
+        targetScroll = Math.max(-3, Math.min(3, targetScroll));
+        touchStartY = e.touches[0].clientY;
+      }, { passive: false });
+
+      const SPEED_PRESETS = [0.15, 0.35, 0.6, 1.0, 1.8, 3.2, 5.5, 0.05];
+      let speedIndex = 3;
+      let currentSpeed = SPEED_PRESETS[speedIndex];
+      let targetSpeed = currentSpeed;
+      
+      canvas.addEventListener('click', () => {
+        speedIndex = (speedIndex + 1) % SPEED_PRESETS.length;
+        targetSpeed = SPEED_PRESETS[speedIndex];
+        
+        for (let i = 0; i < N; i++) {
+          for (let dim = 0; dim < 5; dim++) {
+            phases[i * 5 + dim] += (Math.random() - 0.5) * 1.2;
+          }
+        }
+      });
+
+      const N = 56;
+      const phi = 1.618033988749895;
+      
+      const freqs = new Float32Array(N * 5);
+      const phases = new Float32Array(N * 5);
+      const mods = new Float32Array(N * 5);
+      
+      for (let i = 0; i < N; i++) {
+        const base = i * 5;
+        freqs[base] = 0.7 + (i % 7) * 0.12;
+        freqs[base + 1] = 0.6 + (i % 5) * 0.14;
+        freqs[base + 2] = 0.8 + (i % 3) * 0.16;
+        freqs[base + 3] = 0.55 + (i % 4) * 0.18;
+        freqs[base + 4] = 0.65 + (i % 6) * 0.11;
+        
+        phases[base] = (i * phi * 0.7) % (Math.PI * 2);
+        phases[base + 1] = (i * 0.87 + i * i * 0.031) % (Math.PI * 2);
+        phases[base + 2] = (i * 1.23 + i * 0.57) % (Math.PI * 2);
+        phases[base + 3] = (i * 0.53 + i * 0.91) % (Math.PI * 2);
+        phases[base + 4] = (i * 1.67 + i * 0.23) % (Math.PI * 2);
+        
+        mods[base] = 0.4 + (i * 0.073) % 0.6;
+        mods[base + 1] = 0.35 + (i * 0.091) % 0.55;
+        mods[base + 2] = 0.45 + (i * 0.067) % 0.5;
+        mods[base + 3] = 0.5 + (i * 0.083) % 0.45;
+        mods[base + 4] = 0.38 + (i * 0.077) % 0.58;
+      }
+
+      const TRAIL_LENGTH = 50;
+      const trailX = new Float32Array(N * TRAIL_LENGTH);
+      const trailY = new Float32Array(N * TRAIL_LENGTH);
+
+      const glowCanvases = [];
+      const MAX_GLOW_SIZE = 16;
+      
+      function buildGradients() {
+        glowCanvases.length = 0;
+        const offCanvas = document.createElement('canvas');
+        const offCtx = offCanvas.getContext('2d');
+        
+        for (let r = 1; r <= MAX_GLOW_SIZE; r++) {
+          const d = r * 2 + 6;
+          offCanvas.width = d;
+          offCanvas.height = d;
+          offCtx.clearRect(0, 0, d, d);
+          
+          const half = d / 2;
+          const grd = offCtx.createRadialGradient(half, half, 0, half, half, r);
+          grd.addColorStop(0, 'rgba(255, 255, 255, 0.8)');
+          grd.addColorStop(0.5, 'rgba(255, 255, 255, 0.2)');
+          grd.addColorStop(1, 'rgba(255, 255, 255, 0)');
+          offCtx.fillStyle = grd;
+          offCtx.beginPath();
+          offCtx.arc(half, half, r, 0, Math.PI * 2);
+          offCtx.fill();
+          
+          const canvas = document.createElement('canvas');
+          canvas.width = d;
+          canvas.height = d;
+          canvas.getContext('2d').drawImage(offCanvas, 0, 0);
+          glowCanvases.push(canvas);
+        }
+      }
+
+      const c5 = new Float32Array(5);
+      
+      function compute5DCoords(i, t) {
+        const base = i * 5;
+        
+        for (let dim = 0; dim < 5; dim++) {
+          const f = freqs[base + dim];
+          const p = phases[base + dim];
+          const m = mods[base + dim];
+          const f2 = freqs[base + (dim + 2) % 5];
+          
+          let v = Math.sin(t * f + p) * 0.55;
+          v += Math.cos(t * f * 1.7 + m * 3) * 0.28;
+          v += Math.sin(t * f2 * 2.3 + i * 0.13) * 0.2;
+          v += Math.cos(t * 0.43 + i * 1.7 + dim) * 0.13 * Math.sin(t * 0.97 + i * 0.5);
+          
+          c5[dim] = v;
+        }
+      }
+
+      function project5Dto2D(w4Off, v4Off, scrollZ) {
+        const x0 = c5[0], x1 = c5[1], x2 = c5[2], x3 = c5[3], x4 = c5[4];
+        
+        const x4s = x4 + scrollZ;
+        const iw4 = 1.0 / (2.8 + x4s);
+        const y0 = x0 * iw4 * 2.8;
+        const y1 = x1 * iw4 * 2.8;
+        const y2 = x2 * iw4 * 2.8;
+        const y3 = x3 * iw4 * 2.8;
+        
+        const iw3 = 1.0 / (2.8 + y3 + v4Off + scrollZ * 0.5);
+        const z0 = y0 * iw3 * 2.8 + w4Off * 0.35;
+        const z1 = y1 * iw3 * 2.8;
+        const z2 = y2 * iw3 * 2.8;
+        
+        const iw2 = 1.0 / (3.5 + z2);
+        
+        return {
+          x: z0 * iw2 * 2.5,
+          y: z1 * iw2 * 2.5,
+          z: z2
+        };
+      }
+
+      function draw(timestamp) {
+        currentSpeed += (targetSpeed - currentSpeed) * 0.08;
+        scrollOffset += (targetScroll - scrollOffset) * 0.06;
+        
+        const t = timestamp * 0.001 * currentSpeed;
+        
+        mx += (tmx - mx) * 0.05;
+        my += (tmy - my) * 0.05;
+        const w4Off = mx * 1.17;
+        const v4Off = my * 1.17;
+        
+        for (let i = 0; i < N; i++) {
+          const base = i * TRAIL_LENGTH;
+          for (let k = TRAIL_LENGTH - 1; k > 0; k--) {
+            trailX[base + k] = trailX[base + k - 1];
+            trailY[base + k] = trailY[base + k - 1];
+          }
+        }
+        
+        for (let i = 0; i < N; i++) {
+          compute5DCoords(i, t);
+          const p = project5Dto2D(w4Off, v4Off, scrollOffset);
+          trailX[i * TRAIL_LENGTH] = p.x;
+          trailY[i * TRAIL_LENGTH] = p.y;
+        }
+        
+        const fadeAlpha = Math.max(0.08, Math.min(0.35, 0.25 / Math.sqrt(currentSpeed + 0.1)));
+        ctx.fillStyle = `rgba(10, 10, 10, ${fadeAlpha})`;
+        ctx.fillRect(0, 0, W, H);
+        
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.25)';
+        ctx.lineWidth = 0.6;
+        ctx.beginPath();
+        for (let i = 0; i < N; i++) {
+          const x1 = cx + trailX[i * TRAIL_LENGTH] * sc;
+          const y1 = cy + trailY[i * TRAIL_LENGTH] * sc;
+          
+          for (let j = 1; j <= 6; j++) {
+            const n = (i + j) % N;
+            const x2 = cx + trailX[n * TRAIL_LENGTH] * sc;
+            const y2 = cy + trailY[n * TRAIL_LENGTH] * sc;
+            const dx = x2 - x1;
+            const dy = y2 - y1;
+            
+            if (dx * dx + dy * dy < size * size * 0.49) {
+              ctx.moveTo(x1, y1);
+              ctx.lineTo(x2, y2);
+            }
+          }
+        }
+        ctx.stroke();
+        
+        for (let i = 0; i < N; i++) {
+          const base = i * TRAIL_LENGTH;
+          const pulse = 0.6 + Math.sin(t * 5 + phases[i * 5]) * 0.4;
+          
+          for (let k = TRAIL_LENGTH - 1; k >= 1; k--) {
+            const alpha = (1 - k / TRAIL_LENGTH) * 0.5 * pulse;
+            if (alpha < 0.01) continue;
+            
+            const x1 = cx + trailX[base + k] * sc;
+            const y1 = cy + trailY[base + k] * sc;
+            const x2 = cx + trailX[base + k - 1] * sc;
+            const y2 = cy + trailY[base + k - 1] * sc;
+            
+            ctx.strokeStyle = `rgba(255, 255, 255, ${alpha})`;
+            ctx.lineWidth = 0.8 * pulse * (1 - k / TRAIL_LENGTH);
+            ctx.beginPath();
+            ctx.moveTo(x1, y1);
+            ctx.lineTo(x2, y2);
+            ctx.stroke();
+          }
+        }
+        
+        for (let i = 0; i < N; i++) {
+          const x = cx + trailX[i * TRAIL_LENGTH] * sc;
+          const y = cy + trailY[i * TRAIL_LENGTH] * sc;
+          
+          const approxZ = trailX[i * TRAIL_LENGTH] * 0.3 + trailY[i * TRAIL_LENGTH] * 0.3;
+          const zFactor = (approxZ + 1.5) * 0.7;
+          const pulse = 0.6 + Math.sin(t * 5 + phases[i * 5]) * 0.4;
+          const glowRadius = Math.round(Math.max(1, Math.min(MAX_GLOW_SIZE, 5 * pulse * zFactor)));
+          
+          const glowCanvas = glowCanvases[glowRadius - 1];
+          if (glowCanvas) {
+            ctx.drawImage(glowCanvas, Math.round(x - glowCanvas.width / 2), Math.round(y - glowCanvas.height / 2));
+          }
+          
+          const coreR = Math.max(0.6, 1.8 * pulse * zFactor);
+          ctx.fillStyle = '#ffffff';
+          ctx.beginPath();
+          ctx.arc(x, y, coreR, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+
+      resize();
+      
+      function loop(ts) {
+        draw(ts);
+        requestAnimationFrame(loop);
+      }
+      requestAnimationFrame(loop);      
+    })();
+  </script>
+</body>
+</html>
