@@ -6,3 +6,6 @@ web dev portfolio project, maybe art?
 this is my ~art~ project, where u can scroll, move your mouse and "communicate" with a charismatic geometrical structure
 
 I created this while listening to LINGUA IGNOTA, if that is important
+
+## math
+
