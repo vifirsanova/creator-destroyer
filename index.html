@@ -46,21 +46,129 @@
     .miss:hover {
       color: #7a7a7a;
     }
+    /* Audio toggle button */
+    .audio-btn {
+      position: fixed;
+      top: 18px;
+      right: 22px;
+      background: #1a1a1a;
+      color: #7a7a7a;
+      border: 1px solid #3a3a3a;
+      padding: 6px 14px;
+      font-family: monospace;
+      font-size: 10px;
+      letter-spacing: 1px;
+      cursor: pointer;
+      z-index: 20;
+      border-radius: 2px;
+      transition: all 0.3s;
+      user-select: none;
+    }
+    .audio-btn:hover {
+      color: #cccccc;
+      border-color: #6a6a6a;
+    }
+    .audio-btn.on {
+      color: #cccccc;
+      border-color: #8a8a8a;
+      background: #2a2a2a;
+    }
+    /* Instructions */
+    .instructions {
+      position: fixed;
+      top: 16px;
+      left: 50%;
+      transform: translateX(-50%);
+      color: #3a3a3a;
+      font-size: 9px;
+      letter-spacing: 1px;
+      z-index: 10;
+      text-align: center;
+      pointer-events: none;
+      line-height: 1.5;
+    }
   </style>
 </head>
 <body>
   <canvas id="c"></canvas>
-  <div class="sig">creator-destroyerь</div>
+  <button class="audio-btn" id="audioBtn">sound: off</button>
+  <div class="instructions">
+    click canvas &mdash; speed cycle<br>
+    left click &mdash; random red node<br>
+    scroll &mdash; depth shift
+  </div>
+  <div class="sig">creator-destroyer</div>
   <a class="miss" href="https://github.com/vifirsanova" target="_blank" rel="noopener">missvector</a>
 
   <script>
     (function() {
       const canvas = document.getElementById('c');
       const ctx = canvas.getContext('2d', { alpha: true });
+      const audioBtn = document.getElementById('audioBtn');
 
+      // ==================== AUDIO ENGINE ====================
+      let audioCtx = null;
+      let audioOn = false;
+      // One oscillator + gain for the sonified node
+      let audioOsc = null;
+      let audioGain = null;
+      // Master gain for smooth mute
+      let masterGain = null;
+
+      function initAudio() {
+        if (audioCtx) return;
+        audioCtx = new AudioContext();
+
+        masterGain = audioCtx.createGain();
+        masterGain.gain.value = 0;
+        masterGain.connect(audioCtx.destination);
+
+        audioOsc = audioCtx.createOscillator();
+        audioOsc.type = 'sine';
+
+        audioGain = audioCtx.createGain();
+        audioGain.gain.value = 0.12;
+
+        audioOsc.connect(audioGain);
+        audioGain.connect(masterGain);
+        audioOsc.start();
+
+        // Fade in
+        masterGain.gain.linearRampToValueAtTime(0.18, audioCtx.currentTime + 0.3);
+        audioOn = true;
+        audioBtn.textContent = 'sound: on';
+        audioBtn.classList.add('on');
+      }
+
+      function killAudio() {
+        if (!audioCtx) return;
+        masterGain.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.2);
+        audioOn = false;
+        audioBtn.textContent = 'sound: off';
+        audioBtn.classList.remove('on');
+        // Keep audioCtx alive, just muted
+      }
+
+      audioBtn.addEventListener('click', () => {
+        if (!audioCtx) {
+          initAudio();
+        } else if (audioOn) {
+          killAudio();
+        } else {
+          // Resume
+          audioCtx.resume().then(() => {
+            masterGain.gain.linearRampToValueAtTime(0.18, audioCtx.currentTime + 0.3);
+            audioOn = true;
+            audioBtn.textContent = 'sound: on';
+            audioBtn.classList.add('on');
+          });
+        }
+      });
+
+      // ==================== VISUAL ENGINE ====================
       let W, H, size;
       let cx, cy, sc;
-      
+
       function resize() {
         size = Math.min(window.innerWidth * 0.95, window.innerHeight * 0.95, 700);
         canvas.width = size;
@@ -84,13 +192,13 @@
 
       let scrollOffset = 0;
       let targetScroll = 0;
-      
+
       window.addEventListener('wheel', (e) => {
         e.preventDefault();
         targetScroll += e.deltaY * 0.0008;
         targetScroll = Math.max(-3, Math.min(3, targetScroll));
       }, { passive: false });
-      
+
       let touchStartY = 0;
       window.addEventListener('touchstart', (e) => {
         touchStartY = e.touches[0].clientY;
@@ -107,11 +215,16 @@
       let speedIndex = 3;
       let currentSpeed = SPEED_PRESETS[speedIndex];
       let targetSpeed = currentSpeed;
-      
-      canvas.addEventListener('click', () => {
+
+      // Red node tracking
+      let redNodeIndex = Math.floor(Math.random() * 56);
+
+      // Right-click = speed cycle (original click)
+      canvas.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
         speedIndex = (speedIndex + 1) % SPEED_PRESETS.length;
         targetSpeed = SPEED_PRESETS[speedIndex];
-        
+
         for (let i = 0; i < N; i++) {
           for (let dim = 0; dim < 5; dim++) {
             phases[i * 5 + dim] += (Math.random() - 0.5) * 1.2;
@@ -119,13 +232,20 @@
         }
       });
 
+      // Left-click = pick new random red node
+      canvas.addEventListener('click', (e) => {
+        // Only trigger on left click (button === 0)
+        if (e.button !== 0) return;
+        redNodeIndex = Math.floor(Math.random() * N);
+      });
+
       const N = 56;
       const phi = 1.618033988749895;
-      
+
       const freqs = new Float32Array(N * 5);
       const phases = new Float32Array(N * 5);
       const mods = new Float32Array(N * 5);
-      
+
       for (let i = 0; i < N; i++) {
         const base = i * 5;
         freqs[base] = 0.7 + (i % 7) * 0.12;
@@ -133,13 +253,13 @@
         freqs[base + 2] = 0.8 + (i % 3) * 0.16;
         freqs[base + 3] = 0.55 + (i % 4) * 0.18;
         freqs[base + 4] = 0.65 + (i % 6) * 0.11;
-        
+
         phases[base] = (i * phi * 0.7) % (Math.PI * 2);
         phases[base + 1] = (i * 0.87 + i * i * 0.031) % (Math.PI * 2);
         phases[base + 2] = (i * 1.23 + i * 0.57) % (Math.PI * 2);
         phases[base + 3] = (i * 0.53 + i * 0.91) % (Math.PI * 2);
         phases[base + 4] = (i * 1.67 + i * 0.23) % (Math.PI * 2);
-        
+
         mods[base] = 0.4 + (i * 0.073) % 0.6;
         mods[base + 1] = 0.35 + (i * 0.091) % 0.55;
         mods[base + 2] = 0.45 + (i * 0.067) % 0.5;
@@ -152,74 +272,92 @@
       const trailY = new Float32Array(N * TRAIL_LENGTH);
 
       const glowCanvases = [];
+      const redGlowCanvases = [];
       const MAX_GLOW_SIZE = 16;
-      
+
       function buildGradients() {
         glowCanvases.length = 0;
+        redGlowCanvases.length = 0;
         const offCanvas = document.createElement('canvas');
         const offCtx = offCanvas.getContext('2d');
-        
+
         for (let r = 1; r <= MAX_GLOW_SIZE; r++) {
           const d = r * 2 + 6;
           offCanvas.width = d;
           offCanvas.height = d;
+
+          // White glow
           offCtx.clearRect(0, 0, d, d);
-          
           const half = d / 2;
-          const grd = offCtx.createRadialGradient(half, half, 0, half, half, r);
-          grd.addColorStop(0, 'rgba(255, 255, 255, 0.8)');
-          grd.addColorStop(0.5, 'rgba(255, 255, 255, 0.2)');
-          grd.addColorStop(1, 'rgba(255, 255, 255, 0)');
-          offCtx.fillStyle = grd;
+          const grdWhite = offCtx.createRadialGradient(half, half, 0, half, half, r);
+          grdWhite.addColorStop(0, 'rgba(255, 255, 255, 0.8)');
+          grdWhite.addColorStop(0.5, 'rgba(255, 255, 255, 0.2)');
+          grdWhite.addColorStop(1, 'rgba(255, 255, 255, 0)');
+          offCtx.fillStyle = grdWhite;
           offCtx.beginPath();
           offCtx.arc(half, half, r, 0, Math.PI * 2);
           offCtx.fill();
-          
-          const canvas = document.createElement('canvas');
-          canvas.width = d;
-          canvas.height = d;
-          canvas.getContext('2d').drawImage(offCanvas, 0, 0);
-          glowCanvases.push(canvas);
+
+          const wc = document.createElement('canvas');
+          wc.width = d; wc.height = d;
+          wc.getContext('2d').drawImage(offCanvas, 0, 0);
+          glowCanvases.push(wc);
+
+          // Red glow
+          offCtx.clearRect(0, 0, d, d);
+          const grdRed = offCtx.createRadialGradient(half, half, 0, half, half, r);
+          grdRed.addColorStop(0, 'rgba(255, 60, 40, 0.9)');
+          grdRed.addColorStop(0.4, 'rgba(255, 80, 60, 0.35)');
+          grdRed.addColorStop(1, 'rgba(255, 30, 20, 0)');
+          offCtx.fillStyle = grdRed;
+          offCtx.beginPath();
+          offCtx.arc(half, half, r, 0, Math.PI * 2);
+          offCtx.fill();
+
+          const rc = document.createElement('canvas');
+          rc.width = d; rc.height = d;
+          rc.getContext('2d').drawImage(offCanvas, 0, 0);
+          redGlowCanvases.push(rc);
         }
       }
 
       const c5 = new Float32Array(5);
-      
+
       function compute5DCoords(i, t) {
         const base = i * 5;
-        
+
         for (let dim = 0; dim < 5; dim++) {
           const f = freqs[base + dim];
           const p = phases[base + dim];
           const m = mods[base + dim];
           const f2 = freqs[base + (dim + 2) % 5];
-          
+
           let v = Math.sin(t * f + p) * 0.55;
           v += Math.cos(t * f * 1.7 + m * 3) * 0.28;
           v += Math.sin(t * f2 * 2.3 + i * 0.13) * 0.2;
           v += Math.cos(t * 0.43 + i * 1.7 + dim) * 0.13 * Math.sin(t * 0.97 + i * 0.5);
-          
+
           c5[dim] = v;
         }
       }
 
       function project5Dto2D(w4Off, v4Off, scrollZ) {
         const x0 = c5[0], x1 = c5[1], x2 = c5[2], x3 = c5[3], x4 = c5[4];
-        
+
         const x4s = x4 + scrollZ;
         const iw4 = 1.0 / (2.8 + x4s);
         const y0 = x0 * iw4 * 2.8;
         const y1 = x1 * iw4 * 2.8;
         const y2 = x2 * iw4 * 2.8;
         const y3 = x3 * iw4 * 2.8;
-        
+
         const iw3 = 1.0 / (2.8 + y3 + v4Off + scrollZ * 0.5);
         const z0 = y0 * iw3 * 2.8 + w4Off * 0.35;
         const z1 = y1 * iw3 * 2.8;
         const z2 = y2 * iw3 * 2.8;
-        
+
         const iw2 = 1.0 / (3.5 + z2);
-        
+
         return {
           x: z0 * iw2 * 2.5,
           y: z1 * iw2 * 2.5,
@@ -227,17 +365,22 @@
         };
       }
 
+      // Store current position of red node for audio
+      let redNodeScreenX = 0;
+      let redNodeScreenY = 0;
+      let redNodeDepth = 0;
+
       function draw(timestamp) {
         currentSpeed += (targetSpeed - currentSpeed) * 0.08;
         scrollOffset += (targetScroll - scrollOffset) * 0.06;
-        
+
         const t = timestamp * 0.001 * currentSpeed;
-        
+
         mx += (tmx - mx) * 0.05;
         my += (tmy - my) * 0.05;
         const w4Off = mx * 1.17;
         const v4Off = my * 1.17;
-        
+
         for (let i = 0; i < N; i++) {
           const base = i * TRAIL_LENGTH;
           for (let k = TRAIL_LENGTH - 1; k > 0; k--) {
@@ -245,32 +388,65 @@
             trailY[base + k] = trailY[base + k - 1];
           }
         }
-        
+
         for (let i = 0; i < N; i++) {
           compute5DCoords(i, t);
           const p = project5Dto2D(w4Off, v4Off, scrollOffset);
           trailX[i * TRAIL_LENGTH] = p.x;
           trailY[i * TRAIL_LENGTH] = p.y;
+
+          // Capture red node data for audio
+          if (i === redNodeIndex) {
+            redNodeScreenX = p.x;
+            redNodeScreenY = p.y;
+            redNodeDepth = p.z;
+          }
         }
-        
+
+        // ==================== AUDIO UPDATE ====================
+        if (audioCtx && audioOn && audioOsc) {
+          const now = audioCtx.currentTime;
+          const rampTime = 0.032;
+
+          // Map screen X (-0.5..0.5) to frequency (110..880 Hz, exponential)
+          const freq = 110 * Math.pow(2, (redNodeScreenX + 0.5) * 2.5);
+          audioOsc.frequency.linearRampToValueAtTime(
+            Math.max(55, Math.min(1200, freq)),
+            now + rampTime
+          );
+
+          // Map depth to volume: closer (z near 0) = louder
+          const depthAmp = 1.0 / (1.0 + Math.abs(redNodeDepth) * 2.5);
+          // Pulse from the red node's phase
+          const redPulse = 0.5 + 0.5 * Math.sin(t * 5 + phases[redNodeIndex * 5]);
+          const amp = depthAmp * (0.06 + redPulse * 0.1);
+
+          audioGain.gain.linearRampToValueAtTime(
+            Math.max(0.005, Math.min(0.25, amp)),
+            now + rampTime
+          );
+        }
+
+        // ==================== VISUAL RENDER ====================
         const fadeAlpha = Math.max(0.08, Math.min(0.35, 0.25 / Math.sqrt(currentSpeed + 0.1)));
         ctx.fillStyle = `rgba(10, 10, 10, ${fadeAlpha})`;
         ctx.fillRect(0, 0, W, H);
-        
+
+        // Edges
         ctx.strokeStyle = 'rgba(255, 255, 255, 0.25)';
         ctx.lineWidth = 0.6;
         ctx.beginPath();
         for (let i = 0; i < N; i++) {
           const x1 = cx + trailX[i * TRAIL_LENGTH] * sc;
           const y1 = cy + trailY[i * TRAIL_LENGTH] * sc;
-          
+
           for (let j = 1; j <= 6; j++) {
             const n = (i + j) % N;
             const x2 = cx + trailX[n * TRAIL_LENGTH] * sc;
             const y2 = cy + trailY[n * TRAIL_LENGTH] * sc;
             const dx = x2 - x1;
             const dy = y2 - y1;
-            
+
             if (dx * dx + dy * dy < size * size * 0.49) {
               ctx.moveTo(x1, y1);
               ctx.lineTo(x2, y2);
@@ -278,45 +454,60 @@
           }
         }
         ctx.stroke();
-        
+
+        // Trails
         for (let i = 0; i < N; i++) {
           const base = i * TRAIL_LENGTH;
           const pulse = 0.6 + Math.sin(t * 5 + phases[i * 5]) * 0.4;
-          
+          const isRed = (i === redNodeIndex);
+
           for (let k = TRAIL_LENGTH - 1; k >= 1; k--) {
             const alpha = (1 - k / TRAIL_LENGTH) * 0.5 * pulse;
             if (alpha < 0.01) continue;
-            
+
             const x1 = cx + trailX[base + k] * sc;
             const y1 = cy + trailY[base + k] * sc;
             const x2 = cx + trailX[base + k - 1] * sc;
             const y2 = cy + trailY[base + k - 1] * sc;
-            
-            ctx.strokeStyle = `rgba(255, 255, 255, ${alpha})`;
-            ctx.lineWidth = 0.8 * pulse * (1 - k / TRAIL_LENGTH);
+
+            if (isRed) {
+              ctx.strokeStyle = `rgba(255, 70, 50, ${alpha * 1.3})`;
+              ctx.lineWidth = 1.2 * pulse * (1 - k / TRAIL_LENGTH);
+            } else {
+              ctx.strokeStyle = `rgba(255, 255, 255, ${alpha})`;
+              ctx.lineWidth = 0.8 * pulse * (1 - k / TRAIL_LENGTH);
+            }
             ctx.beginPath();
             ctx.moveTo(x1, y1);
             ctx.lineTo(x2, y2);
             ctx.stroke();
           }
         }
-        
+
+        // Nodes
         for (let i = 0; i < N; i++) {
           const x = cx + trailX[i * TRAIL_LENGTH] * sc;
           const y = cy + trailY[i * TRAIL_LENGTH] * sc;
-          
+
           const approxZ = trailX[i * TRAIL_LENGTH] * 0.3 + trailY[i * TRAIL_LENGTH] * 0.3;
           const zFactor = (approxZ + 1.5) * 0.7;
           const pulse = 0.6 + Math.sin(t * 5 + phases[i * 5]) * 0.4;
           const glowRadius = Math.round(Math.max(1, Math.min(MAX_GLOW_SIZE, 5 * pulse * zFactor)));
-          
-          const glowCanvas = glowCanvases[glowRadius - 1];
+          const isRed = (i === redNodeIndex);
+
+          // Glow
+          const glowSource = isRed ? redGlowCanvases : glowCanvases;
+          const glowCanvas = glowSource[glowRadius - 1];
           if (glowCanvas) {
-            ctx.drawImage(glowCanvas, Math.round(x - glowCanvas.width / 2), Math.round(y - glowCanvas.height / 2));
+            ctx.drawImage(glowCanvas,
+              Math.round(x - glowCanvas.width / 2),
+              Math.round(y - glowCanvas.height / 2)
+            );
           }
-          
+
+          // Core
           const coreR = Math.max(0.6, 1.8 * pulse * zFactor);
-          ctx.fillStyle = '#ffffff';
+          ctx.fillStyle = isRed ? '#ff4430' : '#ffffff';
           ctx.beginPath();
           ctx.arc(x, y, coreR, 0, Math.PI * 2);
           ctx.fill();
@@ -324,12 +515,12 @@
       }
 
       resize();
-      
+
       function loop(ts) {
         draw(ts);
         requestAnimationFrame(loop);
       }
-      requestAnimationFrame(loop);      
+      requestAnimationFrame(loop);
     })();
   </script>
 </body>
