@@ -9,3 +9,8 @@ I created this while listening to LINGUA IGNOTA, if that is important
 
 for math details, see math.pdf with forumulas :)
 
+## music
+
+this toy is actually an oscillator: you can right click to change the leading node that generate sound based on its position and trajectory
+
+more details in music.pdf
